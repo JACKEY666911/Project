@@ -5,7 +5,7 @@
 #include<jsoncpp/json/json.h>
 #include<string>
 
-#define SQL_SIZE 1024
+#define SQL_SIZE 512
 //用户名和密码表
 #define SQL_TABLE1 0x1
 //员工档案表
@@ -21,6 +21,14 @@ struct time
     int year;
     int month;
     int day;
+};
+
+struct emlpoyeeInfo
+{
+    unsigned int id;
+    string name;
+    string gender;
+    string phone;
 };
 
 struct insert
@@ -53,11 +61,21 @@ public:
     int queryMsg(Value &root);
 
     //向数据库中的client表插入一项:用户名-密码
-    int sql_insert_usr(const char* usrname, const char* password);
+    int table1_insert_usr(const char* usrname, const char* password);
     //返回一个用户名存在的条数,用于检查用户名是否已经存在
-    int sql_usrname_is_exist(const char* usrname);
+    int table1_usrname_is_exist(const char* usrname);
     //查询数据库中的client表中的usrname字段，返回其密码
-    char* sql_query_usr(const char* usrname);
+    char* table1_query_usr(const char* usrname);
+
+    int table2_insert(const struct emlpoyeeInfo &emlpoyeeInfo);
+    int table2_id_is_exist(const int &id);
+    //查询所有员工信息数据
+    int table2_queryAllMsg(Value &root);
+    //删除某个员工的信息
+    int table2_delete(const int &id);
+    //更改员工的联系方式
+    int table2_update(const struct emlpoyeeInfo &emlpoyeeInfo);
+    
 };
 
 class forDevice:public emplyInfo
@@ -71,18 +89,3 @@ public:
 int ErrHandle(sqlite3 *db);
 
 #endif
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

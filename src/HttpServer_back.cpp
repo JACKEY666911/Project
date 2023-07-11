@@ -14,7 +14,7 @@
 #include <fcntl.h>
 
 #include"httpserver.hpp"
-//#include"sqlite.hpp"
+#include"sqlite.hpp"
 
 const struct table_entry content_type_table[] = {
 	{ "txt", "text/plain" },
@@ -33,8 +33,7 @@ const struct table_entry content_type_table[] = {
 	{ NULL, NULL },
 };
 
-using namespace std;
-using namespace Json;
+
 
 HttpServer::HttpServer() 
 {
@@ -48,7 +47,6 @@ HttpServer::~HttpServer()
 
 void HttpServer::start(const char* address, const int &port) 
 {
-
     //用于接受返回值
     int ret = 0;
     //创建libevent的上下文
@@ -125,7 +123,7 @@ err:
     return ;
 }
 
-/* Try to guess a good content-type for 'path' */
+//Try to guess a good content-type for 'path' 
 static const char *find_content_type(const char *path)
 {
 	const char *last_period, *extension;
@@ -209,15 +207,12 @@ void post_client_cb(struct evhttp_request *req, void *arg)
 	char buffer[RECV_BUF_MAX_SIZE];
 	//获取请求信息
     parse_post(req, buffer);
+
 	//Json解析
 	Value results;
 	Reader reader;
-	int code = 23021;
-	string username;
-	string password;
 	reader.parse(buffer, results);
-
-	if(results["code"].asInt() != code)
+	if(results["code"].asInt() != CODE)
 	{
 		printf("非法请求\n");
 		return ;
@@ -225,46 +220,100 @@ void post_client_cb(struct evhttp_request *req, void *arg)
 
 	if(results["flag"].asInt() == REGISTER_LOGIN)
 	{	
+		register_login(req, results);
+	}
+	else if(results["flag"].asInt() == USER_MANAGE)
+	{
+		int ret = 0;
+		string response;
+		Value root;
+		FastWriter writer;
+
 		printf("client connected!\n");
-		username = results["username"].asString();
-		password = results["password"].asString();
+		forClient client("test1.db");
+		client.CreateForm();
+
+		struct emlpoyeeInfo usrInfo;
+		usrInfo.id = results["id"].asUInt();
+		usrInfo.name = results["name"].asString();
+		usrInfo.gender = results["gender"].asString();
+		usrInfo.phone = results["phone"].asString();
+
 		switch (results["mode"].asInt())
 		{
-			case REGISTER:
-				printf("REGISTER!\n");
+			case USER_INSERT:
+				ret = client.table2_id_is_exist(usrInfo.id);
+				if(ret)
+				{
+					//注册时用户名重复，无法继续注册，回应0给客户端
+					response = FOUND_ERR;
+					response_post(req, response.c_str());
+					return ;
+				}
 
-			break;
-			case LOGIN:
-				printf("LOGIN!\n");
+				ret = client.table2_insert(usrInfo);
+				if(ret != 0)
+				{
+					response = SQLITE_ERR;
+				}
+				else
+				{
+					//有效注册，回应1给客户端
+					response = SUCESS;
+				}
 
-			break;
+				printf("USER_INSERT!\n");
+				response_post(req, response.c_str());
+				break;
+			case USER_QUERY:
+				client.table2_queryAllMsg(root);
+				response = writer.write(root);
+				response_post(req, response.c_str());
+				printf("USER_QUERY!\n");
+				break;
+			case USER_DELETE:
+				ret = client.table2_delete(usrInfo.id);
+				if(ret != 0)
+				{
+					response = SQLITE_ERR;
+				}
+				else
+				{
+					//有效注册，回应1给客户端
+					response = SUCESS;
+				}
+				response_post(req, response.c_str());
+				break;
+			case USER_REVISE:
+				ret = client.table2_update(usrInfo);
+				if(ret != 0)
+				{
+					response = SQLITE_ERR;
+				}
+				else
+				{
+					//有效注册，回应1给客户端
+					response = SUCESS;
+				}
+				
+				response_post(req, response.c_str());	
+				break;
 			default:
-			break;
+				break;
 		}
+		
 	}
 	else
 	{
-
+		return ;
 	}
 	
 
 	//回应请求
 	//4.设置回应包
-	printf("post333333333\n");
-	struct evbuffer *retbuff = NULL;
-	printf("client111111111\n");
-	evhttp_add_header(evhttp_request_get_output_headers(req),
-						"Content-Type", "text/plain;charset=utf-8,application/json");
-	printf("client222222222\n");
-	retbuff = evbuffer_new();
-	evbuffer_add_printf(retbuff,"Receive post request,Thanks for the request!");
-	evhttp_send_reply(req, 200,"OK",retbuff);
-	evbuffer_free(retbuff);
+	//response_post(req, NULL);
 	return ;
 }
-
-
-
 
 //用于处理GET请求，文件传输
 static void document_cb(struct evhttp_request *req, void *arg)
@@ -350,7 +399,7 @@ if (evb)
 	return;
 }
 
-//解析request请求，包括请求行，请求头，和把请将正文保存在buffer
+//解析request请求，包括请求行，请求头，和把请求正文保存在buffer
 void parse_post(struct evhttp_request *req, char *buffer)
 {
 	string cmdtype = "111";
@@ -376,11 +425,11 @@ void parse_post(struct evhttp_request *req, char *buffer)
     }
 
     //打印请求行信息
-		cout << "Received a " << cmdtype <<"request for " << uri << endl << " Headers: " <<endl;
-		if(evhttp_request_get_command(req) != EVHTTP_REQ_POST)
-		{
-			return ;
-		}
+	cout << "Received a " << cmdtype <<"request for " << uri << endl << " Headers: " <<endl;
+	if(evhttp_request_get_command(req) != EVHTTP_REQ_POST)
+	{
+		return ;
+	}
 
     //2.获取消息报头
     headers = evhttp_request_get_input_headers(req);
@@ -400,8 +449,6 @@ void parse_post(struct evhttp_request *req, char *buffer)
 	}
 	else
 	{
-	
-    	//puts("Input data: <<<");
     	while (post_lenth) 
     	{
 			int n;
@@ -409,8 +456,7 @@ void parse_post(struct evhttp_request *req, char *buffer)
 			size_t copy_len = post_lenth > RECV_BUF_MAX_SIZE ? RECV_BUF_MAX_SIZE : post_lenth;
 			n = evbuffer_remove(buf, buffer, copy_len);
 			if (n > 0)
-			{
-				
+			{	
 				fwrite(buffer, 1, n, stdout);
 				//continue;
 			}
@@ -420,8 +466,92 @@ void parse_post(struct evhttp_request *req, char *buffer)
 			}
 				
 		}
-		//puts(">>>");
 	}
 	
+	return ;
+}
+
+//响应请求的函数
+void response_post(struct evhttp_request *req, const char *response)
+{
+	printf("post333333333\n");
+	struct evbuffer *retbuff = NULL;
+	evhttp_add_header(evhttp_request_get_output_headers(req),
+						"Content-Type", "text/plain;charset=utf-8,application/json");
+	retbuff = evbuffer_new();
+
+	evbuffer_add(retbuff, response, strlen(response));
+	//evbuffer_add_printf(retbuff,response);
+	evhttp_send_reply(req, 200, "OK", retbuff);
+	evbuffer_free(retbuff);
+}
+
+//登录注册函数
+void  register_login(struct evhttp_request *req, const Value &results)
+{
+	int ret = 0;
+	string username;
+	string password;
+	string response;
+
+	printf("client connected!\n");
+	forClient client("test1.db");
+	client.CreateForm();
+	username = results["username"].asString();
+	password = results["password"].asString();
+
+	switch (results["mode"].asInt())
+	{
+		case REGISTER:
+			ret = client.table1_usrname_is_exist(username.c_str());
+			if(ret)
+			{
+				//注册时用户名重复，无法继续注册，回应0给客户端
+				response = FOUND_ERR;
+				response_post(req, response.c_str());
+				return ;
+			}
+			
+			client.table1_insert_usr(username.c_str(), password.c_str());
+			printf("REGISTER!\n");
+			//有效注册，回应1给客户端
+			response = SUCESS;
+			response_post(req, response.c_str());
+			break;
+		case LOGIN:
+			ret = client.table1_usrname_is_exist(username.c_str());
+			printf("ret=%d\n",ret);
+			if(ret)
+			{
+				char * usrpass = NULL;
+				usrpass = client.table1_query_usr(username.c_str());
+				printf("usrpass=%s\n",usrpass);
+				if(strncmp(password.c_str(), usrpass, sizeof(usrpass)))
+				{
+					//密码错误，回应2给客户端
+					response = ERRPASSWORD;
+					response_post(req, response.c_str());
+					free(usrpass);
+					usrpass = NULL;
+					return ;
+				}
+				//密码正确，回应3给客户端
+				response = GREATPASSWORD;
+				response_post(req, response.c_str());
+				free(usrpass);
+				usrpass = NULL;
+				printf("LOGIN!\n");
+			}
+			else
+			{
+				printf("用户名输入错误，请重新输入\n");
+				//用户名输入错误，回应1给客户端
+				response = ERRUSERNAME;
+				response_post(req, response.c_str());
+			}
+
+			break;
+	}
+
 	return ;
 }

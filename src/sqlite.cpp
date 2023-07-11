@@ -4,6 +4,7 @@
 #include<iostream>
 #include<string.h>
 #include"sqlite.hpp"
+#include"httpserver.hpp"
 
 
 
@@ -27,6 +28,7 @@ emplyInfo::~emplyInfo()
 {
     printf("我emplyInfo析构了\n");
 }
+
 //创建三张表（固定的）
 int emplyInfo::CreateForm()
 {
@@ -36,10 +38,11 @@ int emplyInfo::CreateForm()
     snprintf(sql, SQL_SIZE, "create table if not exists table%d(name text, password text)", SQL_TABLE1);
     if(sqlite3_exec(db, sql, NULL,NULL, NULL) != SQLITE_OK)
 	{
-        ErrHandle(db);
+        exit(1);
+        //ErrHandle(db);
 	}
 
-    printf("create table%d  sucess!\n",SQL_TABLE1);
+    printf("create table%d sucess!\n",SQL_TABLE1);
     
     memset(sql, 0, SQL_SIZE);
     snprintf(sql, SQL_SIZE, "create table if not exists table%d(id integer, name text, gender text, phone text)", SQL_TABLE2);
@@ -56,7 +59,7 @@ int emplyInfo::CreateForm()
 	{
         ErrHandle(db);
 	}
-    printf("create table%d  sucess!\n",SQL_TABLE3);
+    printf("create table%d sucess!\n",SQL_TABLE3);
 
     return 0;
 }
@@ -64,7 +67,7 @@ int emplyInfo::CreateForm()
 //子类forClient的构造函数
 forClient::forClient(string fileName):emplyInfo(fileName)
 {
-    
+
 }
 
 
@@ -109,7 +112,7 @@ int forClient::queryMsg(const struct time &date, Value &root)
     Value obj;
     int counts = cloumn*row;
     int index = cloumn;
-    if(row > 1)
+    if(row > 0)
     {
         root.append("SUCESS");
         while(index < counts)
@@ -151,9 +154,9 @@ int forClient::queryMsg(Value &root)
 		return -1;
 	}
 
-    int counts = cloumn*row;
+    int counts = cloumn*(row + 1);
     int index = cloumn;
-    if(row > 1)
+    if(row > 0)
     {
         root.append("SUCESS");
         while(index < counts)
@@ -179,50 +182,51 @@ int forClient::queryMsg(Value &root)
 
 
 
-//向数据库中的client表插入一项:用户名-密码
-int forClient::sql_insert_usr(const char* usrname, const char* password)
+//向数据库中的table1表插入一项:用户名-密码
+int forClient::table1_insert_usr(const char* username, const char* password)
 {
-	char cmd[SQL_SIZE];
-	memset(cmd, 0, SQL_SIZE);//初始数组内容
-	snprintf(cmd, SQL_SIZE, "insert into table1 values('%s', '%s');", usrname, password);
-    printf("%s\n",cmd);
-	int ret = sqlite3_exec(db,cmd,NULL,NULL,NULL);
+	char sql[SQL_SIZE];
+	memset(sql, 0, SQL_SIZE);//初始数组内容
+	snprintf(sql, SQL_SIZE, "insert into table1 values('%s', '%s');", username, password);
+    printf("%s\n",sql);
+	int ret = sqlite3_exec(db,sql,NULL,NULL,NULL);
 	return ret;
 }
 
 //返回一个用户名存在的条数,用于检查用户名是否已经存在
-int forClient::sql_usrname_is_exist(const char* usrname)
+int forClient::table1_usrname_is_exist(const char* username)
 {
-    char cmd[SQL_SIZE];//同查询函数
+    char sql[SQL_SIZE];//同查询函数
     int row,col,ret;
     char **res=NULL;
-    memset(cmd, 0, SQL_SIZE);//初始命令数组内容
-    snprintf(cmd, SQL_SIZE, "select usrname from table1 where usrname like '%s';",usrname);
-    sqlite3_get_table(db,cmd,&res,&row,&col,NULL);
+    memset(sql, 0, SQL_SIZE);//初始命令数组内容
+    snprintf(sql, SQL_SIZE, "select name from table1 where name = '%s';",username);
+    sqlite3_get_table(db,sql,&res,&row,&col,NULL);
     ret=row;
     sqlite3_free_table(res);
     return row;
 }
 
-//查询数据库中的client表中的usrname字段，返回其密码
-char* forClient::sql_query_usr(const char* usrname)
+//查询数据库中的client表中的name字段，返回其密码
+char* forClient::table1_query_usr(const char* username)
 {
-    char cmd[SQL_SIZE];
+    char sql[SQL_SIZE];
     int row,col;//分别表示查询结果的行数和列数，其中行数不包括列名
     char **res=NULL;//查询结果保存的地方，类似于string数组，结构是一维的，抽象来看是查询结果按行排列（包括列名）
-    memset(cmd, 0, SQL_SIZE);//初始命令数组内容
-    snprintf(cmd, SQL_SIZE, "select password from table1 where usrname like '%s';",usrname);
-    sqlite3_get_table(db,cmd,&res,&row,&col,NULL);
+    memset(sql, 0, SQL_SIZE);//初始命令数组内容
+    snprintf(sql, SQL_SIZE, "select password from table1 where name = '%s';",username);
+    sqlite3_get_table(db,sql,&res,&row,&col,NULL);
     
-    if(row>1){
-        int len=strlen(*(res+1));
-        char* ret = (char*)malloc(len*sizeof(char));//分配堆空间，防止函数结束被释放
+    if(row>0){
+        int len = strlen(*(res+1));
+        char* ret = (char*)malloc((len + 1)*sizeof(char));//分配堆空间，防止函数结束被释放
         if(!ret)
         {
             printf("malloc failed!\n");
             exit(1);
         }
-        ret = *(res+1);
+        ret[len] = '\0';
+        strcpy(ret,*(res+1));
         sqlite3_free_table(res);
         return ret;
     }
@@ -235,7 +239,110 @@ char* forClient::sql_query_usr(const char* usrname)
 }
 
 
-//子类forClient的构造函数
+
+
+//向数据库中的table2表插入员工信息-id-name-gender-phone
+int forClient::table2_insert(const struct emlpoyeeInfo &emlpoyeeInfo)
+{
+	char sql[SQL_SIZE];
+	memset(sql, 0, SQL_SIZE);//初始数组内容
+	snprintf(sql, SQL_SIZE, "insert into table2 values(%d, '%s', '%s', '%s');", 
+            emlpoyeeInfo.id,emlpoyeeInfo.name.c_str(), emlpoyeeInfo.gender.c_str(), emlpoyeeInfo.phone.c_str());
+    //printf("%s\n",sql);
+	int ret = sqlite3_exec(db,sql,NULL,NULL,NULL);
+    if(ret != SQLITE_OK)
+    ErrHandle(db);
+	return ret;
+}
+
+//返回一个id存在的条数,用于检查id是否已经存在
+int forClient::table2_id_is_exist(const int &id)
+{
+    char sql[SQL_SIZE];//同查询函数
+    int row,col,ret;
+    char **res=NULL;
+    memset(sql, 0, SQL_SIZE);//初始命令数组内容
+    snprintf(sql, SQL_SIZE, "select id from table2 where id = %d;",id);
+    if(sqlite3_get_table(db,sql,&res,&row,&col,NULL) != SQLITE_OK)
+    ErrHandle(db);
+    ret=row;
+    sqlite3_free_table(res);
+    return row;
+}
+
+//查询所有员工信息数据
+int forClient::table2_queryAllMsg(Value &root)
+{
+    char sql[SQL_SIZE] = {0};
+    memset(sql, 0, SQL_SIZE);//初始命令数组内容
+	int row = 0;
+	int cloumn = 0;
+	char **result = NULL;
+    Value obj;
+	snprintf(sql, SQL_SIZE, "select * from table2");
+
+	if(sqlite3_get_table(db, sql, &result, &row, &cloumn, NULL) != SQLITE_OK)
+	{
+		printf("get table fail!errormsg:%s\n", sqlite3_errmsg(db));
+        root.append(SQLITE_ERR);
+        sqlite3_close(db);
+		return -1;
+	}
+
+    int counts = cloumn*(row + 1);
+    int index = cloumn;
+    if(row > 0)
+    {
+        root.append(SUCESS);
+        while(index < counts)
+		{
+            obj["id"]       = result[index++];
+            obj["name"]     = result[index++];
+            obj["gender"]   = result[index++];
+            obj["phone"]    = result[index++];
+            root.append(obj);
+            obj.clear();
+		}       
+    }
+    else
+    {
+        printf("没有相关信息\n");
+        root.append(FOUND_ERR);
+        return -1;
+    }
+
+    sqlite3_free_table(result);
+    return 0;
+}
+
+//删除某个员工的信息
+int forClient::table2_delete(const int &id)
+{
+    char sql[SQL_SIZE];//同查询函数
+    memset(sql, 0, SQL_SIZE);//初始命令数组内容
+    snprintf(sql, SQL_SIZE, "delete from table2 where id = %d;",id);
+    int ret = sqlite3_exec(db,sql,NULL,NULL,NULL);
+    if(ret != SQLITE_OK)
+    ErrHandle(db);
+    return 0;
+}
+
+//更改员工的联系方式
+int forClient::table2_update(const struct emlpoyeeInfo &emlpoyeeInfo)
+{
+    char sql[SQL_SIZE];//同查询函数
+    memset(sql, 0, SQL_SIZE);//初始命令数组内容
+    snprintf(sql, SQL_SIZE, "update table2 set name = '%s', gender = '%s', phone = '%s' where id = %d;",
+                emlpoyeeInfo.name, emlpoyeeInfo.gender, emlpoyeeInfo.phone, emlpoyeeInfo.id);
+    int ret = sqlite3_exec(db,sql,NULL,NULL,NULL);
+    if(ret != SQLITE_OK)
+    ErrHandle(db);
+    return 0;
+}
+
+
+
+//子类forDevice的构造函数
 forDevice::forDevice(string fileName):emplyInfo(fileName)
 {
     
@@ -244,7 +351,6 @@ forDevice::forDevice(string fileName):emplyInfo(fileName)
 //在数据库插入打卡记录数据
 int forDevice::Register(const struct insert &Mesg, const struct tm *info)
 {
-
     char sql[SQL_SIZE] = {0};
     //插入数据
     memset(sql, 0, SQL_SIZE);
@@ -252,11 +358,7 @@ int forDevice::Register(const struct insert &Mesg, const struct tm *info)
                 info->tm_year + 1900,info->tm_mon + 1, info->tm_yday,
                 Mesg.id, Mesg.name.c_str(), Mesg.date.c_str());
     if(sqlite3_exec(db, sql, NULL,NULL, NULL) != SQLITE_OK)
-	{
-		printf("insert into fail! errmsg:%s\n", sqlite3_errmsg(db));
-		sqlite3_close(db);
-		exit(1);
-	}
+    ErrHandle(db);
 
     return 0;
 }
