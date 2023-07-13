@@ -63,5 +63,6 @@ static void document_cb(struct evhttp_request *req, void *arg);
 void parse_post(struct evhttp_request *req, char *buf);
 void response_post(struct evhttp_request *req, const char *response);
 void register_login(struct evhttp_request *req, const Value &results);
+void  user_manage(struct evhttp_request *req, const Value &results);
 
 #endif

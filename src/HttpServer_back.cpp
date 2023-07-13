@@ -95,8 +95,6 @@ void HttpServer::start(const char* address, const int &port)
     //设置回调函数
 	evhttp_set_cb(http, "/device", post_device_cb, NULL);
 	evhttp_set_cb(http, "/client", post_client_cb, NULL);
-	//evhttp_set_gencb(http, post_request_cb, NULL);
-	//evhttp_set_cb(http, "/home/jack/get", document_cb, NULL);
     evhttp_set_gencb(http, document_cb, NULL);
 
 	printf("2222\n");
@@ -224,94 +222,13 @@ void post_client_cb(struct evhttp_request *req, void *arg)
 	}
 	else if(results["flag"].asInt() == USER_MANAGE)
 	{
-		int ret = 0;
-		string response;
-		Value root;
-		FastWriter writer;
-
-		printf("client connected!\n");
-		forClient client("test1.db");
-		client.CreateForm();
-
-		struct emlpoyeeInfo usrInfo;
-		usrInfo.id = results["id"].asUInt();
-		usrInfo.name = results["name"].asString();
-		usrInfo.gender = results["gender"].asString();
-		usrInfo.phone = results["phone"].asString();
-
-		switch (results["mode"].asInt())
-		{
-			case USER_INSERT:
-				ret = client.table2_id_is_exist(usrInfo.id);
-				if(ret)
-				{
-					//注册时用户名重复，无法继续注册，回应0给客户端
-					response = FOUND_ERR;
-					response_post(req, response.c_str());
-					return ;
-				}
-
-				ret = client.table2_insert(usrInfo);
-				if(ret != 0)
-				{
-					response = SQLITE_ERR;
-				}
-				else
-				{
-					//有效注册，回应1给客户端
-					response = SUCESS;
-				}
-
-				printf("USER_INSERT!\n");
-				response_post(req, response.c_str());
-				break;
-			case USER_QUERY:
-				client.table2_queryAllMsg(root);
-				response = writer.write(root);
-				response_post(req, response.c_str());
-				printf("USER_QUERY!\n");
-				break;
-			case USER_DELETE:
-				ret = client.table2_delete(usrInfo.id);
-				if(ret != 0)
-				{
-					response = SQLITE_ERR;
-				}
-				else
-				{
-					//有效注册，回应1给客户端
-					response = SUCESS;
-				}
-				response_post(req, response.c_str());
-				break;
-			case USER_REVISE:
-				ret = client.table2_update(usrInfo);
-				if(ret != 0)
-				{
-					response = SQLITE_ERR;
-				}
-				else
-				{
-					//有效注册，回应1给客户端
-					response = SUCESS;
-				}
-				
-				response_post(req, response.c_str());	
-				break;
-			default:
-				break;
-		}
-		
+		user_manage(req, results);	
 	}
 	else
 	{
 		return ;
 	}
 	
-
-	//回应请求
-	//4.设置回应包
-	//response_post(req, NULL);
 	return ;
 }
 
@@ -487,7 +404,7 @@ void response_post(struct evhttp_request *req, const char *response)
 }
 
 //登录注册函数
-void  register_login(struct evhttp_request *req, const Value &results)
+void register_login(struct evhttp_request *req, const Value &results)
 {
 	int ret = 0;
 	string username;
@@ -550,6 +467,90 @@ void  register_login(struct evhttp_request *req, const Value &results)
 				response_post(req, response.c_str());
 			}
 
+			break;
+	}
+
+	return ;
+}
+
+//用户管理函数
+void user_manage(struct evhttp_request *req, const Value &results)
+{
+	int ret = 0;
+	string response;
+	Value root;
+	FastWriter writer;
+
+	printf("client connected!\n");
+	forClient client("test1.db");
+	client.CreateForm();
+
+	struct emlpoyeeInfo usrInfo;
+	usrInfo.id = results["id"].asUInt();
+	usrInfo.name = results["name"].asString();
+	usrInfo.gender = results["gender"].asString();
+	usrInfo.phone = results["phone"].asString();
+
+	switch (results["mode"].asInt())
+	{
+		case USER_INSERT:
+			ret = client.table2_id_is_exist(usrInfo.id);
+			if(ret)
+			{
+				//注册时用户名重复，无法继续注册，回应0给客户端
+				response = FOUND_ERR;
+				response_post(req, response.c_str());
+				return ;
+			}
+
+			ret = client.table2_insert(usrInfo);
+			if(ret != 0)
+			{
+				response = SQLITE_ERR;
+			}
+			else
+			{
+				//有效注册，回应1给客户端
+				response = SUCESS;
+			}
+
+			printf("USER_INSERT!\n");
+			response_post(req, response.c_str());
+			break;
+		case USER_QUERY:
+			client.table2_queryAllMsg(root);
+			response = writer.write(root);
+			response_post(req, response.c_str());
+			printf("USER_QUERY!\n");
+			break;
+		case USER_DELETE:
+			ret = client.table2_delete(usrInfo.id);
+			if(ret != 0)
+			{
+				response = SQLITE_ERR;
+			}
+			else
+			{
+				//有效注册，回应1给客户端
+				response = SUCESS;
+			}
+			response_post(req, response.c_str());
+			break;
+		case USER_REVISE:
+			ret = client.table2_update(usrInfo);
+			if(ret != 0)
+			{
+				response = SQLITE_ERR;
+			}
+			else
+			{
+				//有效注册，回应1给客户端
+				response = SUCESS;
+			}
+			
+			response_post(req, response.c_str());	
+			break;
+		default:
 			break;
 	}
 

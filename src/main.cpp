@@ -1,12 +1,8 @@
-
 #include"httpserver.hpp"
-//#include"sqlite.hpp"
+#include"sqlite.hpp"
 
 int main()
 {
-	//char *path = getenv("PWD");
-	//printf("%s\n",path);
-
     //设置端口号
     int port = 8080;
     //设置IP地址

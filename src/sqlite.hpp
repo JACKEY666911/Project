@@ -83,7 +83,6 @@ class forDevice:public emplyInfo
 public:
     forDevice(string fileName);
     int Register(const struct insert &Mesg, const struct tm *info);
-
 };
 
 int ErrHandle(sqlite3 *db);

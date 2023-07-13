@@ -333,7 +333,7 @@ int forClient::table2_update(const struct emlpoyeeInfo &emlpoyeeInfo)
     char sql[SQL_SIZE];//同查询函数
     memset(sql, 0, SQL_SIZE);//初始命令数组内容
     snprintf(sql, SQL_SIZE, "update table2 set name = '%s', gender = '%s', phone = '%s' where id = %d;",
-                emlpoyeeInfo.name, emlpoyeeInfo.gender, emlpoyeeInfo.phone, emlpoyeeInfo.id);
+                emlpoyeeInfo.name.c_str(), emlpoyeeInfo.gender.c_str(), emlpoyeeInfo.phone.c_str(), emlpoyeeInfo.id);
     int ret = sqlite3_exec(db,sql,NULL,NULL,NULL);
     if(ret != SQLITE_OK)
     ErrHandle(db);
@@ -407,4 +407,3 @@ int ErrHandle(sqlite3 *db)
 	sqlite3_close(db);
 	return -1;
 }
-
