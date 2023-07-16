@@ -26,9 +26,11 @@ ThreadPool::ThreadPool(int min, int max)
 
         memset(threadIDs, 0, sizeof(threadIDs));
 
+        coreNum = min;
         maxNum = max;
         busyNum = 0;
-        aliveNum = 0;
+        //此处的aliveNum我没写0
+        aliveNum = min;
 
         if(pthread_cond_init(&notEmpty, NULL) != 0 && pthread_mutex_init(&mutePool, NULL) != 0)
         {
@@ -51,48 +53,52 @@ ThreadPool::ThreadPool(int min, int max)
                 break;
             }
         }
-
+        return ;
         } while (0);
-
+        
         if(threadIDs)
         delete []threadIDs;
         if(taskQ)
         delete taskQ;
+        return ;
 }
 
 ThreadPool::~ThreadPool()
 {
     shutDown = true;
-
+    pthread_join(managerThreadID, NULL);
     for(int i = 0; i < aliveNum; ++i)
     {
+        //cout << "存活的线程： " << aliveNum << endl;
         pthread_cond_signal(&notEmpty);
     }
-
+    //sleep(4);
     if(taskQ)
     delete taskQ;
     if(threadIDs)
     delete []threadIDs; 
     pthread_cond_destroy(&notEmpty);
+    cout << "shutDown: "<< shutDown << endl;
     pthread_mutex_destroy(&mutePool);
+    
 }
 
 int ThreadPool::PushJob(callback func, void *arg, int len)
 {
-    struct Task job;
-
+    pthread_mutex_lock(&mutePool);
     if(shutDown)
     {
         pthread_mutex_unlock(&mutePool);
         return -1;
     }
-
+    struct Task job;
     job.arg = malloc(len);
     memcpy(job.arg, arg, len);
     job.function = func;
     taskQ->addTask(job);
 
     pthread_cond_signal(&notEmpty);
+    pthread_mutex_unlock(&mutePool);
 
     return 0;
 }
@@ -121,17 +127,27 @@ void *ThreadPool::Worker(void *arg)
     {
         //对线程池的类成员上锁，每个线程对类成员的操作要保证原子性
         pthread_mutex_lock(&pool->mutePool);
+        cout << "alivethread: " << pool->aliveNum << endl;
+        printf("任务个数：%d\n", pool->taskQ->getTaskNumber());
         //需要循环判断任务队列是否有任务，
         while(pool->taskQ->getTaskNumber() == 0 && !pool->shutDown)
         {
+            printf("小while任务个数：%d\n", pool->taskQ->getTaskNumber());
+            //阻塞当前线程，直到任务队列有新任务带来，试图抢锁
+            printf("等待任务到来\n");
+            pthread_cond_wait(&pool->notEmpty, &pool->mutePool);
+            printf("没阻塞\n");
+            cout <<"小while的alivenum: " << pool->aliveNum << endl;
             //判断是否要销毁线程
             if(pool->goneThread)
             {
+                printf("goneThread\n");
                 if(pool->aliveNum > pool->coreNum)
                 {
                     pool->aliveNum--;
                     pthread_mutex_unlock(&pool->mutePool);
                     pool->ThreadExit();
+                    return NULL;
                 }
                 else
                 {
@@ -141,16 +157,17 @@ void *ThreadPool::Worker(void *arg)
             }
             else
             {
-                //阻塞当前线程，直到任务队列有新任务带来，试图抢锁
-                pthread_cond_wait(&pool->notEmpty, &pool->mutePool);
+                
+                cout << pool->goneThread << endl;
+
             }
         }
-
         //判断线程池是否被销毁
         if(pool->shutDown)
         {
             pthread_mutex_unlock(&pool->mutePool);
             pool->ThreadExit();
+            break;
         }
 
         //从任务队列取出任务来执行
@@ -165,7 +182,7 @@ void *ThreadPool::Worker(void *arg)
         free(task.arg);
         task.arg = NULL;
 
-        cout << "thread:" << pthread_self() << "is working..." << endl;
+        cout << "thread: " << pthread_self() << " is working..." << endl;
 
         //工作函数完成后，busyNum复原
         pthread_mutex_lock(&pool->mutePool);
@@ -179,18 +196,21 @@ void *ThreadPool::Worker(void *arg)
 void *ThreadPool::Manager(void *arg)
  {
     ThreadPool * pool = (ThreadPool*)arg;
+    
     while(!pool->shutDown)
     {
+        cout << "manage存活的线程： " << pool->aliveNum << endl;
         sleep(3);
         pthread_mutex_lock(&pool->mutePool);
         int aliveNum = pool->aliveNum;
         int busyNum = pool->busyNum;
         int queueSize = pool->taskQ->getTaskNumber();
-        pthread_mutex_unlock(&pool->mutePool);
+        
 
         //任务队列的任务个数大于等于当前存活线程，且当前存活线程小于最大线程数，
         //并大于核心线程数。可以选择增加线程数。
         bool flag = queueSize > aliveNum && aliveNum < pool->maxNum;
+        pthread_mutex_unlock(&pool->mutePool);
         if(flag)
         {
             pthread_mutex_lock(&pool->mutePool);
@@ -213,6 +233,7 @@ void *ThreadPool::Manager(void *arg)
         {
             pthread_mutex_lock(&pool->mutePool);
             pool->goneThread = true;
+            pthread_cond_signal(&pool->notEmpty);
             pthread_mutex_unlock(&pool->mutePool);
         }
         else
@@ -222,20 +243,27 @@ void *ThreadPool::Manager(void *arg)
             pthread_mutex_unlock(&pool->mutePool);
         }
     }
+    //pool->goneThread = true;
+    printf("manage exit: %ld\n",pthread_self());
+    //pthread_exit(NULL); 
+    return NULL;
  }
 
 void ThreadPool::ThreadExit()
 {
+    //usleep(500);
     pthread_t tid = pthread_self();
+    
     for(int i = 0; i < maxNum; ++i)
     {
         if(threadIDs[i] == tid)
         {
             threadIDs[i] = 0;
-            cout << tid << "exiting...." <<  endl;
+            cout << tid << " exiting...." <<  endl;
             break;
         }
     }
 
     pthread_exit(NULL);
+    return ;
 }
