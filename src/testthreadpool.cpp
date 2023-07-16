@@ -25,7 +25,7 @@ int main()
 
     
     
-    printf("aliveNum：%d\n",pool->GetAliveNum());
+    //printf("aliveNum：%d\n",pool->GetAliveNum());
     sleep(20);
     delete pool;
     return 0;

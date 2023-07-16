@@ -24,7 +24,8 @@
 #define USER_DELETE 0x3
 #define USER_REVISE 0x4
 
-#define CODE 23021
+#define CODE_1 23021
+#define CODE_2 23020
 
 
 

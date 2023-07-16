@@ -210,7 +210,7 @@ void post_client_cb(struct evhttp_request *req, void *arg)
 	Value results;
 	Reader reader;
 	reader.parse(buffer, results);
-	if(results["code"].asInt() != CODE)
+	if(results["code"].asInt() != CODE_1)
 	{
 		printf("非法请求\n");
 		return ;
