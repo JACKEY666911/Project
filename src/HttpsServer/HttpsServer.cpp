@@ -17,7 +17,7 @@
 #include<unistd.h>
 #include <fcntl.h>
 
-#include"httpserver.hpp"
+#include"HttpsServer.hpp"
 #include"sqlite.hpp"
 
 const struct table_entry content_type_table[] = {
@@ -41,12 +41,10 @@ const struct table_entry content_type_table[] = {
 
 HttpServer::HttpServer() 
 {
-
 }
 
 HttpServer::~HttpServer() 
 {
-
 }
 
 void HttpServer::start(const char* address, const int &port) 
@@ -60,13 +58,24 @@ void HttpServer::start(const char* address, const int &port)
     struct evhttp_bound_socket *handle = NULL;
     //终端进行ctrl+c发送停止信号
     struct event *term = NULL;
+    //bufferevent
+    //struct bufferevent *bev;
+
+    // Initialize OpenSSL，初始化openssl
+	//初始化SSL算法库函数( 加载要用到的算法 )，调用SSL函数之前必须调用此函数
+    SSL_library_init();
+    //载入所有SSL错误消息
+	ERR_load_crypto_strings();
+    // 错误信息的初始化
+	SSL_load_error_strings();
+    //载入所有的SSL算法
+	OpenSSL_add_all_algorithms();
 
     //忽略管道信息
-	if (signal(SIGPIPE, SIG_IGN) == SIG_ERR) 
-	{
-		ret = 1;
-		goto err;
-	}   
+    signal(SIGPIPE, SIG_IGN);
+
+
+
 
     //创建libevent的上下文
     base = event_base_new();
@@ -84,18 +93,68 @@ void HttpServer::start(const char* address, const int &port)
 		return ;
 	}
 
+    //创建ssl的上下文
+    SSL_CTX *ssl_ctx = NULL;
+    /*
+    SSL_CTX_set_options (ssl_ctx,
+            SSL_OP_SINGLE_DH_USE |
+            SSL_OP_SINGLE_ECDH_USE |
+            SSL_OP_NO_SSLv2);
+*/
+    //创建一个SSL套接字
+	SSL *ssl = NULL;
+
+    //准备好证书和私钥
+    const char *crt = "/home/linux/Project/ssl/server.crt";
+    const char *private_key = "/home/linux/Project/ssl/server.key";
+
+
+	// Create a new OpenSSL context (创建ssl会话，也就是上下文)
+	ssl_ctx = SSL_CTX_new(SSLv23_method());
+	if (!ssl_ctx) {
+		err_openssl("SSL_CTX_new");
+		goto err;
+	}
+
+    // Create OpenSSL bufferevent and stack evhttp on top of it
+    //创建 OpenSSL bufferevent 并在其上堆叠 evhttp
+	ssl = SSL_new(ssl_ctx);
+	if (ssl == NULL) {
+		err_openssl("SSL_new()");
+		goto err;
+	}
+
+    //加载自建证书，秘钥，并验证
+    server_setup_certs (ssl_ctx, crt, private_key);
+
 	//设置默认的content-type
 	evhttp_set_default_content_type(http, "text/html;charset=utf-8");
 	
-	printf("11111\n");
     //绑定地址和端口
     handle = evhttp_bind_socket_with_handle(http, address, port);
-	ret = evhttp_bind_socket(http, address, port);
-	if (ret == -1) 
+    if (!handle) 
     {
-		fprintf(stderr, "couldn't bind to port %d. Exiting.\n", port);
-		goto err;
-	}
+        fprintf(stderr, "couldn't bind to port %d. Exiting.\n", (int)port);
+        goto err;
+    }
+
+    /*
+        设置用于为与给定 evhttp 对象的连接创建新的缓冲区事件的回调。
+   您可以使用它来覆盖默认的缓冲区事件类型 
+        例如，使此 evhttp 对象使用 SSL bufferevents 而不是未加密的缓冲区事件。
+   必须在分配新缓冲区事件时未设置 fd。
+    */
+    evhttp_set_bevcb(http, ssl_bev_cb, ssl);
+   /* 
+        使我们创建好的evhttp句柄 支持 SSL加密
+        实际上，加密的动作和解密的动作都已经帮
+        我们自动完成，我们拿到的数据就已经解密之后的
+    */
+
+
+
+
+
 
     //设置回调函数
 	evhttp_set_cb(http, "/device", post_device_cb, NULL);
@@ -123,6 +182,10 @@ err:
 		event_free(term);
 	if (base)
 		event_base_free(base);
+    if (ssl_ctx)
+		SSL_CTX_free(ssl_ctx);
+	if (ssl)
+		SSL_free(ssl);
     return ;
 }
 
@@ -233,7 +296,6 @@ void post_client_cb(struct evhttp_request *req, void *arg)
 	{
 		return ;
 	}
-	
 	return ;
 }
 
@@ -322,6 +384,8 @@ if (evb)
 }
 
 //解析request请求，包括请求行，请求头，和把请求正文保存在buffer
+
+
 void parse_post(struct evhttp_request *req, char *buffer)
 {
 	string cmdtype = "111";
@@ -560,4 +624,117 @@ void user_manage(struct evhttp_request *req, const Value &results)
 	}
 
 	return ;
+}
+
+
+//openssl出错打印
+static void err_openssl(const char *func)
+{
+	fprintf (stderr, "%s failed:\n", func);
+
+	/* This is the OpenSSL function that prints the contents of the
+	 * error stack to the specified file handle. */
+	ERR_print_errors_fp (stderr);
+
+	exit(1);
+}
+
+//加载证书，私钥，并且验证
+static void server_setup_certs (SSL_CTX *ctx,
+        const char *certificate_chain,
+        const char *private_key)
+{ 
+    int ret = 0;
+    printf("Loading certificate chain from '%s'\n"
+            "and private key from '%s'\n",
+            certificate_chain, private_key);
+
+    ret = SSL_CTX_use_certificate_chain_file (ctx, certificate_chain);
+    if (1 != ret)
+    {
+        cout << "SSL_CTX_use_certificate_chain_file failed!" << endl;
+        ERR_print_errors_fp(stderr);
+        return ;
+    }
+ 
+    ret = SSL_CTX_use_PrivateKey_file (ctx, private_key, SSL_FILETYPE_PEM);
+    if (1 != ret)
+    {
+        cout << "SSL_CTX_use_PrivateKey_file failed!" << endl;
+        ERR_print_errors_fp(stderr);
+        return ;
+    }
+
+    ret = SSL_CTX_check_private_key (ctx);
+    if (1 != ret)
+    {
+        cout << "SSL_CTX_check_private_key failed!" << endl;
+        ERR_print_errors_fp(stderr);
+        return ;
+    }
+
+    return ;
+}
+
+
+/*
+    此回调负责创建新的 SSL 连接并将其包装在 OpenSSL 缓冲区事件中。 
+    这是我们实现https服务器而不是普通旧http服务器的方式。
+*/
+struct bufferevent* ssl_bev_cb (struct event_base *base, void *arg)
+{
+    struct bufferevent *temp = NULL;
+    SSL*ctx = (SSL*) arg;
+ //创建一个新的 SSL 缓冲区事件，以通过套接字上的 SSL* 发送其数据
+    temp = bufferevent_openssl_socket_new (base,
+            -1,
+            ctx,
+            BUFFEREVENT_SSL_ACCEPTING,
+            BEV_OPT_CLOSE_ON_FREE);
+    return NULL;
+}
+
+
+
+static void http_request_done(struct evhttp_request *req, void *ctx)
+{
+	char buffer[256];
+	int nread;
+
+	if (req == NULL) {
+		/* If req is NULL, it means an error occurred, but
+		 * sadly we are mostly left guessing what the error
+		 * might have been.  We'll do our best... */
+		struct bufferevent *bev = (struct bufferevent *) ctx;
+		unsigned long oslerr;
+		int printed_err = 0;
+		int errcode = EVUTIL_SOCKET_ERROR();
+		fprintf(stderr, "some request failed - no idea which one though!\n");
+		/* Print out the OpenSSL error queue that libevent
+		 * squirreled away for us, if any. */
+		while ((oslerr = bufferevent_get_openssl_error(bev))) {
+			ERR_error_string_n(oslerr, buffer, sizeof(buffer));
+			fprintf(stderr, "%s\n", buffer);
+			printed_err = 1;
+		}
+		/* If the OpenSSL error queue was empty, maybe it was a
+		 * socket error; let's try printing that. */
+		if (! printed_err)
+			fprintf(stderr, "socket error = %s (%d)\n",
+				evutil_socket_error_to_string(errcode),
+				errcode);
+		return;
+	}
+
+	fprintf(stderr, "Response line: %d %s\n",
+	    evhttp_request_get_response_code(req),
+	    evhttp_request_get_response_code_line(req));
+
+	while ((nread = evbuffer_remove(evhttp_request_get_input_buffer(req),
+		    buffer, sizeof(buffer)))
+	       > 0) {
+		/* These are just arbitrary chunks of 256 bytes.
+		 * They are not lines, so we can't treat them as such. */
+		fwrite(buffer, nread, 1, stdout);
+	}
 }

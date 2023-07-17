@@ -51,6 +51,7 @@
         "streambuf": "cpp",
         "cinttypes": "cpp",
         "queue": "cpp",
-        "errno.h": "c"
+        "errno.h": "c",
+        "*.inc": "cpp"
     }
 }

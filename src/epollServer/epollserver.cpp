@@ -6,74 +6,39 @@
 #include <arpa/inet.h>
 #include<string.h>
 #include<unistd.h>
-#include <sys/epoll.h>
+
 #include <fcntl.h>
 #include<errno.h>
 
-#include"sqlite.hpp"
+
+#include"epollserver.hpp"
 #include"XthreadPool.hpp"
 #include"TaskQueue.hpp"
 
-#define MESG_SIZE 1024
-#define EVENT_SIZE 50
-#define ERR -1
-#define ERRHAND(FD,ERRMSG) do{if(FD < 0){printf("something is error!\n");perror(ERRMSG);exit(1);}}while(0)
-#define ERRHAND_CON(FD,ERRMSG) do{if(FD < 0){printf("something is error!\n");perror(ERRMSG);continue;}}while(0)
-
-//flag
-#define REGISTER_LOGIN 0xF
-//mode
-#define REGISTER 0x1
-#define LOGIN 0x2
-
-//flag
-#define USER_MANAGE 0xE
-//mode
-#define USER_INSERT 0x1
-#define USER_QUERY 0x2
-#define USER_DELETE 0x3
-#define USER_REVISE 0x4
-
-#define CODE_1 23021
-#define CODE_2 23020
-
-#define SQLITE_ERR "-1"
-#define FOUND_ERR "0"
-#define SUCESS "1"
-#define ERRPASSWORD "2"
-#define GREATPASSWORD "3"
-
-#define ERRUSERNAME "1"
-
-using namespace std;
-using namespace Json;
-
-int setnonblocking(int fd);
-void getJsonMesg(const int fd, const int epfd, Value &results);
-void forQtDEvice(int fd, const Value & results);
-void forQtClient(int fd, const Value & results);
-void register_login(const int fd, const Value &results);
-void user_manage(const int fd, const Value &results);
-
-int main(int argc, const char *argv[])
+eopllServer::eopllServer()
 {
-	int tcp_sockfd = 0;
+	tcp_sockfd = 0;
+	epfd = 0;
+}
+
+eopllServer::~eopllServer()
+{
+	
+}
+
+void eopllServer::listen_init(const char *address, const int port)
+{
 	tcp_sockfd = socket(AF_INET, SOCK_STREAM, 0);
 	ERRHAND(tcp_sockfd,"sockect");
 
-	struct sockaddr_in serverAddr,clientAddr;
-	socklen_t cliLength = 0;
+	struct sockaddr_in serverAddr;
 	socklen_t serLength = sizeof(serverAddr);
-
 	memset(&serverAddr, 0, serLength);
-	memset(&clientAddr, 0, cliLength);
-
+	
 	serverAddr.sin_family = AF_INET;
-	serverAddr.sin_port = htons(8887); 
-	//serverAddr.sin_port = htons(atoi(argv[2])); 
+	serverAddr.sin_port = htons(port); 
 	//serverAddr.sin_addr.s_addr = htonl(INADDR_ANY);
-	//serverAddr.sin_addr.s_addr = inet_addr("192.168.4.56");//此函数会将字符串形式的IP地址转换程32位整数
-    inet_aton("192.168.1.250", &serverAddr.sin_addr);
+    inet_aton(address, &serverAddr.sin_addr);
 	/*
 	函数原型为char *inet aton(const char *string, struct in_addr *adr);
 	作用是将网络字节序转换成字符串类型
@@ -86,16 +51,24 @@ int main(int argc, const char *argv[])
 	ERRHAND(ret, "bind");
 	ret = listen(tcp_sockfd, 10);
 	ERRHAND(ret, "listen");
-	
-	int fd;
-	int epfd;
-	struct epoll_event ev;
+}
+
+void eopllServer::accpet_start()
+{
+	struct epoll_event ev = {0};
 	ev.events = EPOLLIN;
 	ev.data.fd = tcp_sockfd;
 
+	int fd;
+	int ret;
 	int epoll_cnt;
 	struct epoll_event epevents[EVENT_SIZE] = {0};
 	int event_size = sizeof(epevents);
+	struct sockaddr_in clientAddr;
+	socklen_t cliLength = 0;
+	memset(&clientAddr, 0, cliLength);
+
+
 
 	epfd = epoll_create(1);
 	if(epfd == -1)
@@ -107,7 +80,7 @@ int main(int argc, const char *argv[])
     ret = epoll_ctl(epfd, EPOLL_CTL_ADD , tcp_sockfd, &ev);//添加服务器端套接字
 	ERRHAND(ret, "epoll_ctl");
 	
-	//printf("1111111111111111\n");
+	ThreadPool *pool = new ThreadPool(3, 8);
 
 	while(1)//迭代服务器，处理一个客户端的数据传递后，继续受理后续的客户端
 	{
@@ -139,13 +112,16 @@ int main(int argc, const char *argv[])
 			{
 				Value results;
 				getJsonMesg(fd, epfd, results);
+				struct arg *Qarg = new struct arg(fd, results);
 				switch (results["code"].asInt())
 				{
 					case CODE_1:
-						forQtClient(fd, results);
+						pool->PushJob(forQtClient, Qarg, sizeof(struct arg));
+						//forQtClient(fd, results);
 						break;
 					case CODE_2:
-						forQtDEvice(fd, results);
+						pool->PushJob(forQtDevice, Qarg, sizeof(struct arg));
+						//forQtDEvice(fd, results);
 						break;				
 					default:
 						break;
@@ -153,11 +129,13 @@ int main(int argc, const char *argv[])
 			}
 		}
 	}
-
+	delete pool;
 	close(tcp_sockfd);
 	close(epfd);
-	return 0;
+	return ;
 }
+
+
 
 void getJsonMesg(const int fd, const int epfd, Value &results)
 {
@@ -202,8 +180,11 @@ void getJsonMesg(const int fd, const int epfd, Value &results)
 }
 
 
-void forQtDEvice(int fd, const Value & results)
+void forQtDevice(void *arg)
 {
+	struct arg *Qarg = (struct arg *)arg;
+	const Value results = Qarg->results;
+	const int fd = Qarg->fd;
 	if(results["code"].asInt() != CODE_2)
 	{
 		printf("非法请求\n");
@@ -214,8 +195,11 @@ void forQtDEvice(int fd, const Value & results)
 }
 
 
-void forQtClient(int fd, const Value & results)
+void forQtClient(void *arg)
 {
+	struct arg *Qarg = (struct arg *)arg;
+	const Value results = Qarg->results;
+	const int fd = Qarg->fd;
 	if(results["code"].asInt() != CODE_1)
 	{
 		printf("非法请求\n");
@@ -389,9 +373,6 @@ void user_manage(const int fd, const Value &results)
 	return ;
 }
 
-
-
-
 //将文件I/O设置为非阻塞
 int setnonblocking(int fd)
 {
@@ -401,57 +382,3 @@ int setnonblocking(int fd)
 	return old_option;  
 }
 
-#if 0
-void epoll(void)
-{
-	int epoll_create(int size);//创建一个epoll实例，返回一个文件描述符，epoll维护一颗红黑书
-	/*
-	成功返回epfd,失败返回-1
-	*/
-
-
-
-    int epoll_ctl(int epfd, int op, int fd, struct epoll_event *event)//添加、修改、删除监视对象文件描述符
-	/*
-	 成功返回，失败返回-1
-	1）epfd:epoll实例返回给用户的文件描述符
-	2）op:用于指定监视对象的添加、删除、修改操作设置项
-	op:
-	1.EPOLL_CTL_ADD，添加
-	2.EPOLL_CTL_DEL，删除
-	3.EPOLL_CTL_MOD，修改
-	3）fd:需要注册的监视对象的文件描述符
-	4）监视对象的事件类型
-	*/
-	   struct epoll_event {
-	       uint32_t     events;	 /* Epoll events */
-	       epoll_data_t data;	 /* User data variable */
-	   };
-	/*
-	epoll events对应的事件宏：
-		1)EPOLLIN:read
-		2)EPOLLOUT:write
-		3)EPOLLET:边缘触发的方式得到事件通知
-	*/
-	   typedef union epoll_data {
-	       void	   *ptr;
-	       int	    fd;//常用是这个，文件描述符，返回后可查看
-	       uint32_t     u32;
-	       uint64_t     u64;
-	   } epoll_data_t;
-
-
-    int epoll_wait(int epfd, struct epoll_event *events,
-		      int maxevents, int timeout);
-	/*
-	成功返回发生事件的文件描述符的数量，失败返回-1
-
-	1)epfd:epoll实例的文件描述符
-	2)events:保存发生事件的文件描述符的结构体的地址
-	3）maxevents:第二个参数可以保存的最大事件数
-	4）timeout:超时检测，-1时一直等待事件发生
-	*/
-	return;
-} 
-
-#endif

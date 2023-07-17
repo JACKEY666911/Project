@@ -1405,8 +1405,9 @@ bufferevent_openssl_filter_new(struct event_base *base,
 		base, underlying, -1, ssl, state, options);
 }
 
-struct bufferevent *
-bufferevent_openssl_socket_new(struct event_base *base,
+//Create a new SSL bufferevent to send its data over an SSL * on a socket.
+//创建一个新的 SSL 缓冲区事件，以通过套接字上的 SSL * 发送其数据
+struct bufferevent *bufferevent_openssl_socket_new(struct event_base *base,
     evutil_socket_t fd,
     SSL *ssl,
     enum bufferevent_ssl_state state,
