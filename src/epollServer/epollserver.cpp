@@ -10,6 +10,7 @@
 #include <fcntl.h>
 #include<errno.h>
 
+#include<iostream>
 
 #include"epollserver.hpp"
 #include"XthreadPool.hpp"
@@ -28,7 +29,9 @@ eopllServer::~eopllServer()
 
 void eopllServer::listen_init(const char *address, const int port)
 {
+	int option = 1;
 	tcp_sockfd = socket(AF_INET, SOCK_STREAM, 0);
+	setsockopt(tcp_sockfd, SOL_SOCKET, SO_REUSEADDR, &option, sizeof(option));
 	ERRHAND(tcp_sockfd,"sockect");
 
 	struct sockaddr_in serverAddr;
@@ -43,9 +46,6 @@ void eopllServer::listen_init(const char *address, const int port)
 	函数原型为char *inet aton(const char *string, struct in_addr *adr);
 	作用是将网络字节序转换成字符串类型
 	*/
-	/*
-	初始化套接字，将套接字绑定IP地址和端口
-	*/
 	int ret = 0;
 	ret = bind(tcp_sockfd, (struct sockaddr*)&serverAddr, serLength);
 	ERRHAND(ret, "bind");
@@ -53,22 +53,20 @@ void eopllServer::listen_init(const char *address, const int port)
 	ERRHAND(ret, "listen");
 }
 
-void eopllServer::accpet_start()
+void eopllServer::accpet_start()//ThreadPool *pool
 {
-	struct epoll_event ev = {0};
+	int ret;
+	int epoll_cnt;
+	int accept_sock;
+	struct epoll_event ev;
+	struct epoll_event epevents[EVENT_SIZE] = {0};
+	int event_size = sizeof(epevents);
 	ev.events = EPOLLIN;
 	ev.data.fd = tcp_sockfd;
 
-	int fd;
-	int ret;
-	int epoll_cnt;
-	struct epoll_event epevents[EVENT_SIZE] = {0};
-	int event_size = sizeof(epevents);
 	struct sockaddr_in clientAddr;
 	socklen_t cliLength = 0;
 	memset(&clientAddr, 0, cliLength);
-
-
 
 	epfd = epoll_create(1);
 	if(epfd == -1)
@@ -84,63 +82,88 @@ void eopllServer::accpet_start()
 
 	while(1)//迭代服务器，处理一个客户端的数据传递后，继续受理后续的客户端
 	{
+		printf("88888888888888888\n");
 		epoll_cnt = epoll_wait(epfd, epevents, event_size, -1);
+		printf("5555555555555\n");
 		printf("epoll_cnt:%d\n",epoll_cnt);
 		ERRHAND(epoll_cnt, "epoll_wait");
 
 		for(int i = 0; i < epoll_cnt; ++i)
 		{
-			fd = epevents[i].data.fd;
-			setnonblocking(fd);//将套接字（文件描述符设置为非阻塞I/O）
-
-			if(fd == tcp_sockfd)
+			if(epevents[i].data.fd == tcp_sockfd)
 			{
-				int accept_sock = accept(fd, (struct sockaddr *)&clientAddr, &cliLength);
+				accept_sock = accept(tcp_sockfd, (struct sockaddr *)&clientAddr, &cliLength);
 				ERRHAND(ret, "accept");
 				char *str_clientAddr = inet_ntoa(clientAddr.sin_addr);
 				int clientPort = ntohs(clientAddr.sin_port);
-				printf("有人连接服务器，IP地址为%s,端口号为%d\n",str_clientAddr,clientPort);
+				printf("有人连接服务器,IP地址为%s,端口号为%d\n",str_clientAddr,clientPort);
 
-				struct epoll_event accept_ev;
-				accept_ev.events = EPOLLIN | EPOLLET;//将epoll事件设置为边沿触发模式
-				accept_ev.data.fd = accept_sock;
+				ev.events = EPOLLIN ;//| EPOLLET;//;//将epoll事件设置为边沿触发模式
+				ev.data.fd = accept_sock;
 
-				ret = epoll_ctl(epfd, EPOLL_CTL_ADD, accept_sock, &accept_ev);
+				ret = epoll_ctl(epfd, EPOLL_CTL_ADD, accept_sock, &ev);
 				ERRHAND_CON(ret, "epoll_ctl");
+				printf("connected client: %d\n", accept_sock);
 			}
 			else
 			{
+				int clientfd = epevents[i].data.fd;
+				//setnonblocking(clientfd);
 				Value results;
-				getJsonMesg(fd, epfd, results);
-				struct arg *Qarg = new struct arg(fd, results);
-				switch (results["code"].asInt())
-				{
-					case CODE_1:
-						pool->PushJob(forQtClient, Qarg, sizeof(struct arg));
-						//forQtClient(fd, results);
-						break;
-					case CODE_2:
-						pool->PushJob(forQtDevice, Qarg, sizeof(struct arg));
-						//forQtDEvice(fd, results);
-						break;				
-					default:
-						break;
-				}
-			}
+				getJsonMesg(clientfd, epfd, results);
+				FastWriter writer;
+				cout << writer.write(results);
+				Handle(clientfd, &results, pool);
+				sleep(20);
+				
+			}		
 		}
 	}
-	delete pool;
 	close(tcp_sockfd);
 	close(epfd);
+	delete pool;
 	return ;
 }
 
+void Handle(int fd, Value *results, ThreadPool *pool)
+{
+	struct arg *Qarg = new struct arg;
+	Qarg->results = results;
+	Qarg->fd = fd;
+	FastWriter writer;
+	cout << "Handle" << writer.write(Qarg->results) << " fd: " << Qarg->fd;
+	cout<< "Handle" << (*results)["password"].asString() << endl;
+	if((*results)["code"].asInt() != CODE_1)
+	{
+		cout << "22222非法请求,退出！" << endl;
+		return;
+	}
 
+	switch ((*results)["code"].asInt())
+	{
+		case CODE_1:
+			pool->PushJob(forQtClient, Qarg, sizeof(struct arg));
+			printf("coming\n");
+			break;
+		case CODE_2:
+			pool->PushJob(forQtDevice, Qarg, sizeof(struct arg));
+			break;				
+		default:
+			break;
+	}
+	
+	delete Qarg;
+	printf("44444444444444\n");
+	return ;
+}
 
 void getJsonMesg(const int fd, const int epfd, Value &results)
 {
+	setnonblocking(fd);
 	Reader reader;
-	char *mesg = new char[MESG_SIZE];
+	string Mesg;
+	char mesg[MESG_SIZE] = {0};
+	//char *mesg = new char[MESG_SIZE];
 	memset(mesg, 0, MESG_SIZE);
 	int str_len = 0;
 	/*在epoll边缘触发的条件下，并将read事件对应的文件描述符设置为非阻塞I/O模式，
@@ -148,13 +171,15 @@ void getJsonMesg(const int fd, const int epfd, Value &results)
 	*/
 	while(1)
 	{
-		str_len = recv(fd, mesg, MESG_SIZE, 0);
-		if(str_len == -1)
+		memset(mesg, 0, sizeof(mesg));
+		str_len = recv(fd, mesg, MESG_SIZE, 0);	
+		if(str_len < 0)
 		{
-			if(errno == EAGAIN)//recv函数中，如果错误码为EAGAIN，意味着在非阻塞I/O的前提下，数据被读完了
+			if(errno == EAGAIN )//|| errno == EWOULDBLOCK
 			{
-				printf("数据接受完毕...\n");
-				break;
+				
+				printf("3333333333333333333\n");
+				continue; //资源暂不可用， 在尝试一次
 			}
 			else
 			{
@@ -165,18 +190,26 @@ void getJsonMesg(const int fd, const int epfd, Value &results)
 		else if(str_len == 0)//客户端信息传送完毕，断开连接
 		{
 			epoll_ctl(epfd, EPOLL_CTL_DEL, fd, NULL);//删除事件节点时，第四个参数为NULL
+			printf("有客户端断开连接,disconnected client:%d\n",fd);
 			close(fd);
-			//printf("有客户端断开连接,disconnected client:%d\n",epevents[i].data.fd);
+			return;
+		}
+		else if(str_len == sizeof(mesg))
+		{ 
+			//cout << Mesg << " size" << Mesg.size();
+			Mesg.append(mesg);	
+		}
+		else if(0 < str_len < sizeof(mesg))
+		{
+			Mesg.append(mesg);	
 			break;
 		}
-		else
-		{ 
-			write(STDOUT_FILENO, mesg, sizeof(mesg));
-			reader.parse(mesg, results);
-			memset(mesg, 0, sizeof(mesg));
-		}
-	}
 
+	}
+	reader.parse(Mesg, results);
+	cout << "ingetjson " << results["code"].asInt() << endl;
+	//printf("22222222222222222\n");
+	return ;
 }
 
 
@@ -198,23 +231,26 @@ void forQtDevice(void *arg)
 void forQtClient(void *arg)
 {
 	struct arg *Qarg = (struct arg *)arg;
-	const Value results = Qarg->results;
 	const int fd = Qarg->fd;
-	if(results["code"].asInt() != CODE_1)
+	cout << "forQtClient" << fd << endl;
+	cout << "forQtClient" << endl;
+	Value *results = Qarg->results;
+	cout << "forQtClient" << (*results).toStyledString();
+	
+	if((*results)["code"].asInt() != CODE_1)
 	{
 		printf("非法请求\n");
 		return ;
 	}
 
-	if(results["flag"].asInt() == REGISTER_LOGIN)
+	if((*results)["flag"].asInt() == REGISTER_LOGIN)
 	{	
-		register_login(fd, results);
+		register_login(fd, (*results));
 	}
-	else if(results["flag"].asInt() == USER_MANAGE)
+	else if((*results)["flag"].asInt() == USER_MANAGE)
 	{
-		user_manage(fd, results);	
+		user_manage(fd,(*results));	
 	}
-
 	return ;
 }
 
@@ -226,9 +262,9 @@ void register_login(const int fd, const Value &results)
 	string username;
 	string password;
 	string response;
-
+	string dbname = "test7.db";
 	printf("client connected!\n");
-	forClient client("test1.db");
+	forClient client(dbname);
 	client.CreateForm();
 	username = results["username"].asString();
 	password = results["password"].asString();
@@ -376,7 +412,7 @@ void user_manage(const int fd, const Value &results)
 //将文件I/O设置为非阻塞
 int setnonblocking(int fd)
 {
-	int old_option = fcntl(fd,  F_GETFL);  // 获取文件描述符旧的状态标志
+	int old_option = fcntl(fd, F_GETFL);  // 获取文件描述符旧的状态标志
 	int new_option = old_option | O_NONBLOCK; //设置非阻塞标志
 	fcntl(fd, F_SETFL, new_option);  
 	return old_option;  

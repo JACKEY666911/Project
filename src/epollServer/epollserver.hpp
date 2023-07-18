@@ -8,7 +8,7 @@
 
 
 #define MESG_SIZE 1024
-#define EVENT_SIZE 50
+#define EVENT_SIZE 1024
 #define ERR -1
 #define ERRHAND(FD,ERRMSG) do{if(FD < 0){printf("something is error!\n");perror(ERRMSG);exit(1);}}while(0)
 #define ERRHAND_CON(FD,ERRMSG) do{if(FD < 0){printf("something is error!\n");perror(ERRMSG);continue;}}while(0)
@@ -43,11 +43,11 @@ using namespace Json;
 
 int setnonblocking(int fd);
 void getJsonMesg(const int fd, const int epfd, Value &results);
-void forQtDEvice(int fd, const Value & results);
-void forQtClient(int fd, const Value & results);
+void forQtDevice(void *arg);
+void forQtClient(void *arg);
 void register_login(const int fd, const Value &results);
 void user_manage(const int fd, const Value &results);
-
+void Handle(int fd, Value *results, ThreadPool *pool);
 
 class eopllServer
 {
@@ -56,7 +56,7 @@ public:
     eopllServer();
     ~eopllServer();
     void listen_init(const char *address, const int port);
-    void accpet_start();
+    void accpet_start();//ThreadPool *pool
 
 protected:
     int tcp_sockfd;
@@ -65,13 +65,8 @@ protected:
 
 struct arg
 {
-    arg(int fd_, Value results_)
-    {
-        fd      = fd_;
-        results = results_;
-    }
     int fd;
-    Value results;
+    Value *results;
 };
 
 

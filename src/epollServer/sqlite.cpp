@@ -4,7 +4,7 @@
 #include<iostream>
 #include<string.h>
 #include"sqlite.hpp"
-#include"httpserver.hpp"
+#include"epollserver.hpp"
 
 
 
@@ -51,7 +51,7 @@ int emplyInfo::CreateForm()
         ErrHandle(db);
 	}
 
-    printf("create table%d  sucess!\n",SQL_TABLE2);
+    printf("create table%d sucess!\n",SQL_TABLE2);
     
     memset(sql, 0, SQL_SIZE);
     snprintf(sql, SQL_SIZE, "create table if not exists table%d(year integer, month integer, day integer, id integer, name text, clockdate text)", SQL_TABLE3);

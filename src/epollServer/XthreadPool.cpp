@@ -5,6 +5,10 @@
 #include<stdio.h>
 #include<unistd.h>
 
+
+
+
+
 ThreadPool::ThreadPool(int min, int max)
 {
     do
@@ -85,6 +89,7 @@ ThreadPool::~ThreadPool()
 
 int ThreadPool::PushJob(callback func, void *arg, int len)
 {
+    printf("ffffffff\n");
     pthread_mutex_lock(&mutePool);
     if(shutDown)
     {
@@ -156,10 +161,8 @@ void *ThreadPool::Worker(void *arg)
                 
             }
             else
-            {
-                
+            {               
                 cout << pool->goneThread << endl;
-
             }
         }
         //判断线程池是否被销毁

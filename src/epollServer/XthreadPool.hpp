@@ -1,7 +1,8 @@
 #ifndef XTHREADPOOL_HPP
 #define XTHREADPOOL_HPP
 #include"TaskQueue.hpp"
-
+#include<jsoncpp/json/json.h>
+using namespace Json;
 using namespace std;
 
 class ThreadPool
