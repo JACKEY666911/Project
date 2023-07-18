@@ -52,6 +52,7 @@
         "cinttypes": "cpp",
         "queue": "cpp",
         "errno.h": "c",
-        "*.inc": "cpp"
+        "*.inc": "cpp",
+        "complex": "cpp"
     }
 }
